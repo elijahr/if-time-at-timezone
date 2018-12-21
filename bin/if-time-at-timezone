@@ -1,0 +1,90 @@
+#!/usr/bin/env python2
+
+import argparse
+import datetime
+import pytz
+import sys
+
+
+from dateutil.parser import parse as parse_datetime
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description='Determine if it is currently the given time in the given timezone. '
+                    'Exits with status 0 if yes, 1 if not.')
+    parser.add_argument(
+        'input',
+        type=parse_input,
+        metavar='HH:MM@TIMEZONE',
+        help='A string such as "16:00@US/Pacific", "23:00@America/Chicago", "00:00@UTC", etc')
+    parser.add_argument(
+        '--now',
+        type=parse_now,
+        default=datetime.datetime.now(pytz.UTC).isoformat(),
+        help='The datetime to check against, if other than the current system time (ISO 8601 format)')
+    parser.add_argument(
+        '--wiggle',
+        metavar='SECONDS',
+        type=parse_wiggle,
+        default=120,
+        help='The amount of wiggle room, in seconds (default 120)')
+    parser.add_argument(
+        '--verbose',
+        action='store_true',
+        default=False,
+        help='Print to stderr whether time matches or not')
+
+    args = parser.parse_args()
+    now = args.now
+    hours, minutes, timezone = args.input
+    time_to_check = now.astimezone(timezone).replace(
+        hour=hours, minute=minutes, second=0, microsecond=0)
+    if check_time(
+            time_to_check=time_to_check,
+            now=now,
+            wiggle=args.wiggle,
+            verbose=args.verbose):
+        sys.exit(0)
+    else:
+        sys.exit(1)
+
+
+def check_time(time_to_check, now, wiggle, verbose):
+    diff_seconds = (now - time_to_check).total_seconds()
+    abs_diff_seconds = abs(diff_seconds)
+    passed = abs_diff_seconds <= wiggle
+    if verbose:
+        sys.stderr.write(
+            '{status}: {input} (input) is {diff}s {direction} {now} (now)\n'.format(
+                status='PASS' if passed else 'FAIL',
+                input=time_to_check.isoformat(),
+                diff=abs_diff_seconds,
+                direction='after' if diff_seconds < 0 else 'before',
+                now=now.isoformat()))
+    return passed
+
+
+def parse_input(value):
+    hhmm, tz = value.split('@')
+    hours, minutes = map(int, hhmm.split(':'))
+    timezone = pytz.timezone(tz)
+    return hours, minutes, timezone
+
+
+def parse_now(value):
+    value = parse_datetime(value)
+    if not value.tzinfo:
+        raise argparse.ArgumentTypeError('formatted time string must contain a timezone offset')
+    return value
+
+
+def parse_wiggle(value):
+    value = int(value)
+    if value < 0:
+        raise argparse.ArgumentTypeError('must be positive integer')
+    return value
+
+
+if __name__ == '__main__':
+    main()
